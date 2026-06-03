@@ -1,0 +1,38 @@
+[project]
+name = "observation-labeler"
+version = "0.1.0"
+description = "Observability-only channel labeling for agent telemetry."
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.6,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+]
+fasttext = [
+  "fasttext-wheel>=0.9.2",
+  "numpy>=1.26,<2",
+]
+models = [
+  "fasttext-wheel>=0.9.2",
+  "numpy>=1.26,<2",
+  "onnxruntime>=1.17",
+  "transformers>=4.40",
+]
+data = [
+  "datasets>=2.19",
+  "huggingface-hub>=0.23",
+  "pandas>=2.2",
+]
+
+[project.scripts]
+observation-label = "observation_labeler.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["observation_labeler*"]
