@@ -113,6 +113,44 @@ SOURCES: tuple[SourceSpec, ...] = (
     ),
 )
 
+PRESETS = {
+    # Good first training corpus: direct prompt-injection data, moderation-score
+    # datasets with category labels, and SQuAD hard-negative benign questions.
+    # Excludes weaker/unclear schema sources unless explicitly requested.
+    "quality": (
+        "rogue_prompt_injections",
+        "deepset_prompt_injections",
+        "lakera_gandalf",
+        "cyberec_prompt_injection",
+        "toxigen",
+        "ifmain_text_moderation_multilingual",
+        "quantaspark_cortyx_safety",
+        "squad_v2_safe",
+    ),
+    "prompt": (
+        "rogue_prompt_injections",
+        "deepset_prompt_injections",
+        "lakera_gandalf",
+        "cyberec_prompt_injection",
+        "squad_v2_safe",
+    ),
+    "safety": (
+        "toxigen",
+        "ifmain_text_moderation_multilingual",
+        "quantaspark_cortyx_safety",
+    ),
+}
+
+SOURCES = (
+    *SOURCES,
+    SourceSpec(
+        name="squad_v2_safe",
+        kind="hf_safe_text",
+        dataset_id="squad_v2",
+        splits=("train", "validation"),
+    ),
+)
+
 TEXT_KEYS = (
     "text",
     "prompt",
@@ -144,6 +182,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build a multi-label fastText dataset for observation labels.")
     parser.add_argument("--output-dir", default="data/fasttext_corpus")
     parser.add_argument("--sources", default="all", help="Comma-separated source names, or 'all'.")
+    parser.add_argument(
+        "--preset",
+        default="",
+        choices=sorted(PRESETS),
+        help="Curated source preset. Overrides --sources.",
+    )
+    parser.add_argument("--list-sources", action="store_true")
     parser.add_argument("--limit-per-source", type=int, default=0)
     parser.add_argument("--max-per-label", type=int, default=0, help="Optional balancing cap after dedupe.")
     parser.add_argument("--seed", type=int, default=17)
@@ -153,22 +198,34 @@ def main() -> None:
     parser.add_argument("--hf-token", default=os.environ.get("HF_TOKEN", ""))
     args = parser.parse_args()
 
-    selected = _select_sources(args.sources)
+    if args.list_sources:
+        print(json.dumps({"sources": [spec.name for spec in SOURCES], "presets": PRESETS}, indent=2, sort_keys=True))
+        return
+
+    selected = _select_sources(",".join(PRESETS[args.preset]) if args.preset else args.sources)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[Row] = []
     failures: list[dict[str, str]] = []
+    source_stats: dict[str, dict[str, Any]] = {}
     for spec in selected:
         if spec.gated and not args.include_gated:
+            source_stats[spec.name] = {"status": "skipped_gated", "rows_mapped": 0}
             continue
         try:
             source_rows = list(_load_source(spec, args.hf_token))
         except Exception as exc:  # noqa: BLE001 - keep builder resilient across external datasets.
             failures.append({"source": spec.name, "error": str(exc)})
+            source_stats[spec.name] = {"status": "failed", "rows_mapped": 0, "error": str(exc)}
             continue
         if args.limit_per_source:
             source_rows = source_rows[: args.limit_per_source]
+        source_stats[spec.name] = {
+            "status": "included",
+            "rows_mapped": len(source_rows),
+            "label_counts": dict(_label_counts(source_rows)),
+        }
         rows.extend(source_rows)
 
     rows, conflict_count = _dedupe_and_drop_conflicts(rows)
@@ -191,6 +248,7 @@ def main() -> None:
         "split_counts": {name: len(split_rows) for name, split_rows in splits.items()},
         "label_counts": dict(_label_counts(rows)),
         "source_counts": dict(Counter(row.source for row in rows)),
+        "source_stats": source_stats,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(manifest, indent=2, sort_keys=True))
@@ -270,6 +328,8 @@ def _map_hf_item(spec: SourceSpec, split: str, item: dict[str, Any]) -> Row | No
         labels = _map_toxigen_labels(item)
     elif spec.kind == "hf_moderation_scores":
         labels = _map_moderation_score_labels(item)
+    elif spec.kind == "hf_safe_text":
+        labels = frozenset({SAFE_LABEL})
     else:
         labels = frozenset()
 

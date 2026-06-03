@@ -88,11 +88,11 @@ python scripts/build_fasttext_dataset.py \
   --output-dir data/fasttext_smoke
 ```
 
-Full build including gated sources:
+Quality build including gated sources:
 
 ```bash
 python scripts/build_fasttext_dataset.py \
-  --sources all \
+  --preset quality \
   --include-gated \
   --output-dir data/fasttext_corpus
 ```
@@ -101,11 +101,16 @@ Balanced build for first training attempts:
 
 ```bash
 python scripts/build_fasttext_dataset.py \
-  --sources all \
+  --preset quality \
   --include-gated \
   --max-per-label 75000 \
   --output-dir data/fasttext_corpus_balanced
 ```
+
+Avoid `--sources all` for training. It is useful for debugging source adapters,
+but it can include weak schema mappings. The `quality` preset keeps direct
+prompt-injection sources, moderation-score sources, and hard-negative safe
+question data.
 
 Outputs:
 
