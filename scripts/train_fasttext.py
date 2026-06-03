@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,11 @@ def main() -> None:
     parser.add_argument("--bucket", type=int, default=2_000_000)
     parser.add_argument("--thread", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=0.35)
+    parser.add_argument(
+        "--thresholds",
+        default="",
+        help="Comma-separated thresholds to evaluate in addition to --threshold.",
+    )
     parser.add_argument("--loss", default="ova", choices=["ova", "softmax", "hs", "ns"])
     args = parser.parse_args()
 
@@ -42,28 +47,33 @@ def main() -> None:
     )
     model.save_model(args.output)
 
+    thresholds = _parse_thresholds(args.thresholds, args.threshold)
+    threshold_metrics = {
+        str(threshold): {
+            "valid": threshold_eval(model, args.valid, threshold),
+            "test": threshold_eval(model, args.test, threshold),
+        }
+        for threshold in thresholds
+    }
     metrics = {
         "params": vars(args),
         "fasttext_builtin": {
-            "valid": _builtin_test(model, args.valid),
-            "test": _builtin_test(model, args.test),
+            "valid": builtin_test(model, args.valid),
+            "test": builtin_test(model, args.test),
         },
-        "threshold_metrics": {
-            "valid": _threshold_eval(model, args.valid, args.threshold),
-            "test": _threshold_eval(model, args.test, args.threshold),
-        },
+        "threshold_metrics": threshold_metrics,
     }
     metrics_path = Path(args.metrics_output or f"{args.output}.metrics.json")
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(metrics, indent=2, sort_keys=True))
 
 
-def _builtin_test(model: Any, path: str) -> dict[str, float]:
+def builtin_test(model: Any, path: str) -> dict[str, float]:
     n, precision, recall = model.test(path, k=-1)
     return {"rows": n, "precision": precision, "recall": recall}
 
 
-def _threshold_eval(model: Any, path: str, threshold: float) -> dict[str, Any]:
+def threshold_eval(model: Any, path: str, threshold: float) -> dict[str, Any]:
     tp: Counter[str] = Counter()
     fp: Counter[str] = Counter()
     fn: Counter[str] = Counter()
@@ -73,7 +83,7 @@ def _threshold_eval(model: Any, path: str, threshold: float) -> dict[str, Any]:
 
     with Path(path).open(encoding="utf-8") as f:
         for line in f:
-            expected, text = _parse_fasttext_line(line)
+            expected, text = parse_fasttext_line(line)
             if not text:
                 continue
             predicted_raw, _ = model.predict(text, k=-1, threshold=threshold)
@@ -114,7 +124,7 @@ def _threshold_eval(model: Any, path: str, threshold: float) -> dict[str, Any]:
     }
 
 
-def _parse_fasttext_line(line: str) -> tuple[set[str], str]:
+def parse_fasttext_line(line: str) -> tuple[set[str], str]:
     labels: set[str] = set()
     parts = line.strip().split()
     text_start = 0
@@ -128,6 +138,17 @@ def _parse_fasttext_line(line: str) -> tuple[set[str], str]:
 
 def _safe_div(num: float, den: float) -> float:
     return num / den if den else 0.0
+
+
+def _parse_thresholds(raw_thresholds: str, default: float) -> list[float]:
+    if not raw_thresholds:
+        return [default]
+    thresholds = {default}
+    for raw in raw_thresholds.split(","):
+        raw = raw.strip()
+        if raw:
+            thresholds.add(float(raw))
+    return sorted(thresholds)
 
 
 if __name__ == "__main__":

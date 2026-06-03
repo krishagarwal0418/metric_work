@@ -172,6 +172,33 @@ dim: 100, 200, 300
 minn/maxn: 2-5, 3-6
 ```
 
+Production sweep:
+
+```bash
+python scripts/sweep_fasttext.py \
+  --train data/fasttext_quality_v3/train.txt \
+  --valid data/fasttext_quality_v3/valid.txt \
+  --test data/fasttext_quality_v3/test.txt \
+  --output-dir models/fasttext_sweep \
+  --best-output fasttext_observation_best.bin \
+  --thresholds 0.20,0.25,0.30,0.35,0.40,0.50,0.60 \
+  --thread 8
+```
+
+The sweep trains multiple candidate configs, evaluates thresholds, ranks by a
+production-weighted score, writes `models/fasttext_sweep/sweep_report.json`, and
+copies the best model to `fasttext_observation_best.bin`.
+
+FastText does not have neural network layers/nodes. The important knobs are:
+
+- `dim`: embedding dimension. Larger can help quality but increases model size.
+- `wordNgrams`: phrase features. Higher helps prompts like "ignore previous instructions".
+- `minn` / `maxn`: character n-gram range. Helps typos, casing, obfuscation, multilingual text.
+- `bucket`: hash bucket count for n-grams. Higher reduces collisions but increases memory/model size.
+- `loss=ova`: required for multi-label training.
+- `lr` / `epoch`: optimization strength and training passes.
+- prediction threshold: controls router recall/precision after training.
+
 For our architecture, optimize fastText for:
 
 - high recall as a router
