@@ -61,6 +61,18 @@ The builder currently supports:
   - Dataset: `QuantaSparkLabs/cortyx-safety-dataset`
   - Labels mapped from safety category names.
 
+- `sivasothy_self_harm`
+  - Dataset: `sivasothy-Tharsi/self-harm-detection`
+  - Labels mapped to `self_harm` / `safe`.
+
+- `enguard_prompt_moderation`
+  - Dataset: `enguard/multi-lingual-prompt-moderation`
+  - Labels mapped from moderation category names.
+
+- `ucb_measuring_hate_speech`
+  - Dataset: `ucberkeley-dlab/measuring-hate-speech`
+  - Labels mapped from `hate_speech_score`.
+
 ## Colab Setup
 
 ```bash
@@ -106,7 +118,7 @@ python scripts/build_fasttext_dataset.py \
   --include-gated \
   --max-per-source 75000 \
   --max-per-label 75000 \
-  --output-dir data/fasttext_corpus_balanced
+  --output-dir data/fasttext_quality_v3
 ```
 
 Avoid `--sources all` for training. It is useful for debugging source adapters,
@@ -132,23 +144,21 @@ __label__safe what is the payment policy?
 Baseline:
 
 ```bash
-python - <<'PY'
-import fasttext
-
-model = fasttext.train_supervised(
-    input="data/fasttext_corpus/train.txt",
-    lr=0.4,
-    epoch=25,
-    wordNgrams=3,
-    minn=3,
-    maxn=6,
-    dim=200,
-    loss="ova",
-    thread=8,
-)
-print(model.test("data/fasttext_corpus/valid.txt", k=-1))
-model.save_model("fasttext_observation.bin")
-PY
+python scripts/train_fasttext.py \
+  --train data/fasttext_quality_v3/train.txt \
+  --valid data/fasttext_quality_v3/valid.txt \
+  --test data/fasttext_quality_v3/test.txt \
+  --output fasttext_observation_v0_1.bin \
+  --lr 0.4 \
+  --epoch 30 \
+  --word-ngrams 3 \
+  --minn 3 \
+  --maxn 6 \
+  --dim 200 \
+  --bucket 2000000 \
+  --loss ova \
+  --threshold 0.35 \
+  --thread 8
 ```
 
 Recommended sweep:

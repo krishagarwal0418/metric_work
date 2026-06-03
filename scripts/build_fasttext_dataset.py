@@ -111,6 +111,30 @@ SOURCES: tuple[SourceSpec, ...] = (
         dataset_id="QuantaSparkLabs/cortyx-safety-dataset",
         splits=("train",),
     ),
+    SourceSpec(
+        name="sivasothy_self_harm",
+        kind="hf_self_harm_binary",
+        dataset_id="sivasothy-Tharsi/self-harm-detection",
+        splits=("train",),
+    ),
+    SourceSpec(
+        name="yiting_self_harm",
+        kind="hf_self_harm_binary",
+        dataset_id="yiting/Self-harm_Dataset",
+        splits=("train",),
+    ),
+    SourceSpec(
+        name="enguard_prompt_moderation",
+        kind="hf_moderation_labels",
+        dataset_id="enguard/multi-lingual-prompt-moderation",
+        splits=("train",),
+    ),
+    SourceSpec(
+        name="ucb_measuring_hate_speech",
+        kind="hf_hate_score",
+        dataset_id="ucberkeley-dlab/measuring-hate-speech",
+        splits=("train",),
+    ),
 )
 
 PRESETS = {
@@ -125,6 +149,9 @@ PRESETS = {
         "toxigen",
         "ifmain_text_moderation_multilingual",
         "quantaspark_cortyx_safety",
+        "sivasothy_self_harm",
+        "enguard_prompt_moderation",
+        "ucb_measuring_hate_speech",
         "squad_v2_safe",
     ),
     "prompt": (
@@ -138,6 +165,9 @@ PRESETS = {
         "toxigen",
         "ifmain_text_moderation_multilingual",
         "quantaspark_cortyx_safety",
+        "sivasothy_self_harm",
+        "enguard_prompt_moderation",
+        "ucb_measuring_hate_speech",
     ),
 }
 
@@ -334,6 +364,12 @@ def _map_hf_item(spec: SourceSpec, split: str, item: dict[str, Any]) -> Row | No
         labels = _map_toxigen_labels(item)
     elif spec.kind == "hf_moderation_scores":
         labels = _map_moderation_score_labels(item)
+    elif spec.kind == "hf_moderation_labels":
+        labels = _map_moderation_label_names(item)
+    elif spec.kind == "hf_self_harm_binary":
+        labels = _map_self_harm_labels(item)
+    elif spec.kind == "hf_hate_score":
+        labels = _map_hate_score_labels(item)
     elif spec.kind == "hf_safe_text":
         labels = frozenset({SAFE_LABEL})
     else:
@@ -455,6 +491,57 @@ def _map_moderation_score_labels(item: dict[str, Any]) -> frozenset[str]:
     if _is_truthy(item.get("flagged")) is False and not labels:
         labels.add(SAFE_LABEL)
     return frozenset(labels)
+
+
+def _map_moderation_label_names(item: dict[str, Any]) -> frozenset[str]:
+    labels: set[str] = set()
+    labels.update(_map_safety_labels(item))
+    labels.update(_labels_from_category_dict(item.get("categories"), threshold=None))
+    labels.update(_labels_from_category_dict(item.get("category_scores"), threshold=0.5))
+
+    joined = " ".join(_label_values(item)).lower()
+    if not joined:
+        joined = " ".join(str(value) for value in item.values() if not isinstance(value, (dict, list))).lower()
+    if any(x in joined for x in ("harassment", "abuse", "toxic", "insult", "bullying")):
+        labels.add("toxicity")
+    if "hate" in joined or "hateful" in joined:
+        labels.add("hate")
+    if "sexual" in joined or "sexually" in joined:
+        labels.add("sexual")
+    if "violence" in joined or "violent" in joined:
+        labels.add("violence")
+    if "self_harm" in joined or "self-harm" in joined or "suicide" in joined:
+        labels.add("self_harm")
+    if _is_safe_label(joined) and not labels:
+        labels.add(SAFE_LABEL)
+    return frozenset(labels)
+
+
+def _map_self_harm_labels(item: dict[str, Any]) -> frozenset[str]:
+    joined = " ".join(_label_values(item)).lower()
+    if not joined:
+        joined = " ".join(str(value) for value in item.values() if not isinstance(value, (dict, list))).lower()
+    if any(x in joined for x in ("self-harm", "self_harm", "suicide", "suicidal", "harm")):
+        return frozenset({"self_harm"})
+    if _is_safe_label(joined) or any(x in joined for x in ("non-self", "not self", "normal", "supportive")):
+        return frozenset({SAFE_LABEL})
+    binary = _binary_value(item, ("label", "class", "target", "is_self_harm", "self_harm"))
+    if binary is True:
+        return frozenset({"self_harm"})
+    if binary is False:
+        return frozenset({SAFE_LABEL})
+    return frozenset()
+
+
+def _map_hate_score_labels(item: dict[str, Any]) -> frozenset[str]:
+    score = _float_value(item.get("hate_speech_score"))
+    if score is None:
+        return _map_safety_labels(item)
+    if score > 0.5:
+        return frozenset({"hate", "toxicity"})
+    if score < -1.0:
+        return frozenset({SAFE_LABEL})
+    return frozenset()
 
 
 def _labels_from_category_dict(value: Any, threshold: float | None) -> set[str]:
