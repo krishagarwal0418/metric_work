@@ -146,7 +146,7 @@ SOURCES = (
     SourceSpec(
         name="squad_v2_safe",
         kind="hf_safe_text",
-        dataset_id="squad_v2",
+        dataset_id="rajpurkar/squad_v2",
         splits=("train", "validation"),
     ),
 )
@@ -190,6 +190,7 @@ def main() -> None:
     )
     parser.add_argument("--list-sources", action="store_true")
     parser.add_argument("--limit-per-source", type=int, default=0)
+    parser.add_argument("--max-per-source", type=int, default=0, help="Randomly cap mapped rows from each source.")
     parser.add_argument("--max-per-label", type=int, default=0, help="Optional balancing cap after dedupe.")
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--train-ratio", type=float, default=0.90)
@@ -221,8 +222,13 @@ def main() -> None:
             continue
         if args.limit_per_source:
             source_rows = source_rows[: args.limit_per_source]
+        loaded_count = len(source_rows)
+        if args.max_per_source and len(source_rows) > args.max_per_source:
+            rng = random.Random(f"{args.seed}:{spec.name}")
+            source_rows = rng.sample(source_rows, args.max_per_source)
         source_stats[spec.name] = {
             "status": "included",
+            "rows_loaded": loaded_count,
             "rows_mapped": len(source_rows),
             "label_counts": dict(_label_counts(source_rows)),
         }

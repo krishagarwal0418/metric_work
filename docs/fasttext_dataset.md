@@ -94,6 +94,7 @@ Quality build including gated sources:
 python scripts/build_fasttext_dataset.py \
   --preset quality \
   --include-gated \
+  --max-per-source 75000 \
   --output-dir data/fasttext_corpus
 ```
 
@@ -103,6 +104,7 @@ Balanced build for first training attempts:
 python scripts/build_fasttext_dataset.py \
   --preset quality \
   --include-gated \
+  --max-per-source 75000 \
   --max-per-label 75000 \
   --output-dir data/fasttext_corpus_balanced
 ```
